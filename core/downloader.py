@@ -189,7 +189,7 @@ class Downloader:
                     # 单线程重试失败章节
                     failed_chapters = self.retry_failed_chapters(book_id, failed_chapters, save_dir)
 
-            # 只��在没有失败章节或用户选择不重试的情况下才进行格式转换
+            # 只有在没有失败章节或用户选择不重试的情况下才进行格式转换
             if not failed_chapters and self.is_downloading:
                 # 转换格式
                 if output_format != "txt":

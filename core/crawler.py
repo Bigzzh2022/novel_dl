@@ -168,7 +168,7 @@ class Crawler:
             for elem in content_div.find_all(['p', 'div'], class_='readinline'):
                 elem.decompose()
 
-            # 理内容
+            # 清理内容
             content = content_div.get_text('\n', strip=True)
             content = re.sub(r'(www|http:|https:).+?com', '', content)
             content = re.sub(r'笔趣阁.*?最新章节！', '', content)
@@ -438,7 +438,7 @@ class Crawler:
                 self.log("搜索结果正在加载中")
                 return []
             
-            # 查找是否有小说盒子
+            # 查找��有小说盒子
             book_list = type_show.find_all('div', class_='bookbox')
             if not book_list:
                 self.log("未找到任何小说信息")
@@ -500,7 +500,7 @@ class Crawler:
     def make_request(self, url, method='get', retry_times=3, **kwargs):
         """带重试的请求函数"""
         headers = kwargs.pop('headers', {})
-        # 添加必要的请求头
+        # 添加必要地请求头
         headers.update({
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
             'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
