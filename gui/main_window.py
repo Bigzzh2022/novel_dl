@@ -94,9 +94,6 @@ class SearchDialog(tk.Toplevel):
             messagebox.showinfo("提示", "未找到相关小说")
             return
 
-        # 显示搜索结果数量
-        self.log(f"找到 {len(results)} 本相关小说")
-        
         # 创建搜索结果窗口
         self._show_search_results(results)
 
@@ -204,7 +201,7 @@ class MainWindow:
             messagebox.showwarning("提示", "请输入搜索关键词")
             return
 
-        # 执行搜索
+        # 执搜索
         self.log("正在搜索小说...")
         results = self.crawler.search_novel(keyword)
         
@@ -213,9 +210,6 @@ class MainWindow:
             messagebox.showinfo("提示", "未找到相关小说")
             return
 
-        # 显示搜索结果数量
-        self.log(f"找到 {len(results)} 本相关小说")
-        
         # 创建搜索结果窗口
         self._show_search_results(results)
 
@@ -223,85 +217,122 @@ class MainWindow:
         """显示搜索结果"""
         dialog = tk.Toplevel(self.window)
         dialog.title("搜索结果")
-        dialog.geometry("800x500")  # 加宽窗口以容纳更多信息
+        dialog.geometry("800x280")  # 保持窗口大小
         dialog.transient(self.window)
         dialog.grab_set()
 
-        # 创建主框架
-        main_frame = ttk.Frame(dialog, padding="5")
+        # 创建主框架，不设置padding
+        main_frame = ttk.Frame(dialog)
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # 创建表格
-        columns = ('title', 'author', 'status', 'book_id')  # 添加状态列
-        tree = ttk.Treeview(main_frame, columns=columns, show='headings', height=15)
+        # 创建表格，添加最新章节列
+        columns = ('title', 'author', 'status', 'latest_chapter', 'book_id')
+        tree = ttk.Treeview(main_frame, columns=columns, show='headings', height=10)
         
         # 设置列标题
         tree.heading('title', text='书名')
         tree.heading('author', text='作者')
-        tree.heading('status', text='状态')  # 新增状态列标题
+        tree.heading('status', text='状态')
+        tree.heading('latest_chapter', text='最新章节')
         tree.heading('book_id', text='书号')
         
-        # 设置列宽
-        tree.column('title', width=300, anchor='w')
-        tree.column('author', width=150, anchor='w')
-        tree.column('status', width=100, anchor='center')  # 新增状态列宽度
-        tree.column('book_id', width=100, anchor='center')
+        # 优化调整列宽度比例，利用原滚动条的空间
+        tree.column('title', width=190, anchor='w')      # 书名列
+        tree.column('author', width=80, anchor='w')      # 作者列
+        tree.column('status', width=50, anchor='center') # 状态列
+        tree.column('latest_chapter', width=280, anchor='w')  # 最新章节列
+        tree.column('book_id', width=60, anchor='center')    # 书号列
 
-        # 添加滚动条
-        y_scrollbar = ttk.Scrollbar(main_frame, orient=tk.VERTICAL, command=tree.yview)
-        tree.configure(yscrollcommand=y_scrollbar.set)
+        # 直接布局表格，不添加滚动条
+        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        # 显示基本结果
+        # 更新显示数据的函数
         def update_tree(results_data):
             tree.delete(*tree.get_children())
-            for result in results_data['results']:
-                # 获取小说状态
+            for result in results_data.get('results', []):
                 status = result.get('status', '未知')
                 if not status:
-                    status = '连载中'  # 默认状态
+                    status = '连载中'
                 elif '完' in status or '结' in status:
                     status = '已完本'
                 else:
                     status = '连载中'
                     
+                # 获取最新章节信息
+                latest_chapter = result.get('latest_chapter', '')
+                if not latest_chapter and 'chapters' in result:
+                    # 如果有章节列表，取最后一章的标题
+                    chapters = result['chapters']
+                    if chapters:
+                        latest_chapter = chapters[-1].get('title', '')
+                
                 tree.insert('', tk.END, values=(
                     result['title'],
                     result['author'],
-                    status,  # 添加状态信息
+                    status,
+                    latest_chapter,  # 显示最新章节信息
                     result['book_id']
                 ))
 
         update_tree(results)
 
-        # 双击选择
+        # 双击选择功能保持不变
         def on_select(event=None):
             selection = tree.selection()
             if selection:
                 item = tree.item(selection[0])
                 self.book_id.delete(0, tk.END)
-                self.book_id.insert(0, item['values'][3])  # book_id
+                self.book_id.insert(0, item['values'][4])  # 修改索引为4，因为book_id现在是第5列
                 dialog.destroy()
                 self.query_book_info()
 
         tree.bind('<Double-1>', on_select)
 
-        # 分页控件
-        page_frame = ttk.Frame(dialog, padding="3")
+        # 底部框架，减小padding
+        bottom_frame = ttk.Frame(dialog)  # 移除padding
+        bottom_frame.pack(fill=tk.X, pady=2)  # 只保留少量垂直间距
+
+        # 分页信息和按钮
         current_page = results.get('page', 1)
         total_pages = results.get('total_pages', 1)
         total_count = results.get('total', 0)
-        
-        # 分页信息和按钮布局在一行
-        btn_frame = ttk.Frame(page_frame)
-        btn_frame.pack(side=tk.RIGHT, padx=5)
-        
-        # 分页信息
+
+        # 左侧分页信息
         page_info = ttk.Label(
-            page_frame, 
+            bottom_frame, 
             text=f"共 {total_count} 条结果，第 {current_page}/{total_pages} 页"
         )
-        page_info.pack(side=tk.LEFT, padx=5)
+        page_info.pack(side=tk.LEFT)
+
+        # 中间分页按钮
+        nav_frame = ttk.Frame(bottom_frame)
+        nav_frame.pack(side=tk.LEFT, padx=10)
         
+        prev_btn = ttk.Button(
+            nav_frame, 
+            text="上一页",
+            command=lambda: change_page(-1),
+            width=8,
+            state='disabled' if current_page == 1 else 'normal'
+        )
+        prev_btn.pack(side=tk.LEFT, padx=2)
+        
+        next_btn = ttk.Button(
+            nav_frame,
+            text="下一页",
+            command=lambda: change_page(1),
+            width=8,
+            state='disabled' if current_page == total_pages else 'normal'
+        )
+        next_btn.pack(side=tk.LEFT, padx=2)
+
+        # 右侧操作按钮
+        btn_frame = ttk.Frame(bottom_frame)
+        btn_frame.pack(side=tk.RIGHT)
+        
+        ttk.Button(btn_frame, text="选择", command=on_select, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_frame, text="取消", command=dialog.destroy, width=8).pack(side=tk.LEFT, padx=2)
+
         def change_page(offset):
             nonlocal current_page
             new_page = current_page + offset
@@ -309,7 +340,7 @@ class MainWindow:
                 current_page = new_page
                 # 显示加载提示
                 for item in tree.get_children():
-                    tree.item(item, values=('加载中...', '', '', ''))  # 更新空值数量
+                    tree.item(item, values=('加载中...', '', '', '', ''))  # 修改为5个空值
                 dialog.update()
                 
                 # 加载新页面数据
@@ -317,54 +348,14 @@ class MainWindow:
                     new_results = self.crawler.search_novel(self.search_var.get(), new_page)
                     if new_results and new_results['results']:
                         update_tree(new_results)
-                        update_page_controls(new_results)
+                        # 更新按钮状态
+                        prev_btn.config(state='normal' if new_page > 1 else 'disabled')
+                        next_btn.config(state='normal' if new_page < total_pages else 'disabled')
+                        # 更新页码信息
+                        page_info.config(text=f"共 {total_count} 条结果，第 {new_page}/{total_pages} 页")
                 except Exception as e:
                     self.log(f"加载页面失败: {str(e)}")
                     messagebox.showerror("错误", "加载页面失败")
-
-        def update_page_controls(results_data=None):
-            nonlocal total_pages, total_count
-            if results_data:
-                total_pages = results_data.get('total_pages', total_pages)
-                total_count = results_data.get('total', total_count)
-            
-            page_info.config(text=f"共 {total_count} 条结果，第 {current_page}/{total_pages} 页")
-            prev_btn.config(state='normal' if current_page > 1 else 'disabled')
-            next_btn.config(state='normal' if current_page < total_pages else 'disabled')
-
-        # 分页按钮
-        prev_btn = ttk.Button(
-            btn_frame, 
-            text="上一页", 
-            command=lambda: change_page(-1),
-            width=8,
-            state='disabled' if current_page == 1 else 'normal'
-        )
-        next_btn = ttk.Button(
-            btn_frame, 
-            text="下一页", 
-            command=lambda: change_page(1),
-            width=8,
-            state='disabled' if current_page == total_pages else 'normal'
-        )
-
-        # 操作按钮
-        action_frame = ttk.Frame(dialog, padding="3")
-        select_btn = ttk.Button(action_frame, text="选择", command=on_select, width=8)
-        cancel_btn = ttk.Button(action_frame, text="取消", command=dialog.destroy, width=8)
-
-        # 布局
-        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(5,0))
-        y_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        prev_btn.pack(side=tk.LEFT, padx=2)
-        next_btn.pack(side=tk.LEFT, padx=2)
-        
-        page_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=3)
-        
-        action_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=3)
-        cancel_btn.pack(side=tk.RIGHT, padx=5)
-        select_btn.pack(side=tk.RIGHT, padx=2)
 
     def _create_chapter_range_frame(self, parent):
         """创建章节范围选择区域"""
@@ -414,16 +405,28 @@ class MainWindow:
         button_frame = ttk.Frame(parent, padding="10")
         button_frame.grid(row=3, column=0, columnspan=2, pady=5)
 
+        # 开始下载按钮
         self.download_btn = ttk.Button(button_frame, text="开始下载", 
                                      command=self.start_download, width=15)
         self.download_btn.pack(side=tk.LEFT, padx=5)
 
+        # 停止下载按钮
+        self.stop_btn = ttk.Button(button_frame, text="停止下载",
+                                  command=self.stop_download, state='disabled', width=15)
+        self.stop_btn.pack(side=tk.LEFT, padx=5)
+
+        # 继续下载按钮
+        self.resume_btn = ttk.Button(button_frame, text="继续下载",
+                                    command=self.resume_download, state='disabled', width=15)
+        self.resume_btn.pack(side=tk.LEFT, padx=5)
+
+        # 重试按钮
         self.retry_btn = ttk.Button(button_frame, text="重试失败章节",
                                   command=self.retry_failed, state='disabled', width=15)
         self.retry_btn.pack(side=tk.LEFT, padx=5)
 
     def _create_progress_frame(self, parent):
-        """创建进度显示区域"""
+        """建进度显示区域"""
         progress_frame = ttk.LabelFrame(parent, text="下载进度", padding="10")
         progress_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=5)
         progress_frame.columnconfigure(0, weight=1)
@@ -436,7 +439,7 @@ class MainWindow:
 
     def _create_log_frame(self, parent):
         """创建日志显示区域"""
-        log_frame = ttk.LabelFrame(parent, text="下载日志", padding="10")
+        log_frame = ttk.LabelFrame(parent, text="日志", padding="10")
         log_frame.grid(row=2, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
@@ -460,36 +463,25 @@ class MainWindow:
 
         def do_query():
             try:
-                # 先获取基本信息
-                self.novel_info = {
-                    'title': '',
-                    'author': '',
-                    'status': '获取中...',
-                    'latest_chapter': '',
-                    'total_chapters': 0
-                }
-                
-                # 更新基本显示
-                self.window.after(0, self.update_book_info)
+                # 获取小说详细信息
+                details = self.crawler.get_novel_info(book_id)
+                if not details:
+                    self.window.after(0, lambda: self.log("获取小说信息失败"))
+                    return
+
+                # 保存小说信息
+                self.novel_info = details
                 
                 # 获取章节列表
                 chapters = self.crawler.get_chapter_list(book_id)
                 if not chapters:
-                    self.window.after(0, lambda: self.log("获取章节列表失"))
+                    self.window.after(0, lambda: self.log("获取章节列表失败"))
                     return
                     
                 self.total_chapter_count = len(chapters)
                 
-                # 异步获取详细信息
-                try:
-                    details = self.crawler.get_novel_details(book_id)
-                    if details:
-                        self.novel_info.update(details)
-                except Exception as e:
-                    self.window.after(0, lambda: self.log(f"获取详情失败: {str(e)}"))
-                
-                # 再次更新显示
-                self.window.after(0, self.update_book_info)
+                # 更新显示
+                self.window.after(0, lambda: self.update_book_info())
 
             except Exception as e:
                 self.window.after(0, lambda: self.log(f"查询失败: {str(e)}"))
@@ -500,10 +492,22 @@ class MainWindow:
     def update_book_info(self):
         """更新小说信息显示"""
         if self.novel_info:
+            # 清空之前的日志
+            self.log_text.delete(1.0, tk.END)
+            
+            # 只显示一次小说信息
             info_text = (
-                f"书名：{self.novel_info.get('title', '')}\n"
-                f"作者：{self.novel_info.get('author', '')}\n"
-                f"状态：{self.novel_info.get('status', '')}\n"
+                f"获取小说详情成功:\n"
+                f"{'='*50}\n"
+                f"书名：{self.novel_info.get('title', '未知')}\n"
+                f"作者：{self.novel_info.get('author', '未知')}\n"
+                f"状态：{self.novel_info.get('status', '未知')}\n"
+                f"分类：{self.novel_info.get('category', '')}\n"
+                f"字数：{self.novel_info.get('word_count', '')}\n"
+                f"更新：{self.novel_info.get('update_time', '')}\n"
+                f"最新：{self.novel_info.get('latest_chapter', '')}\n"
+                f"简介：{self.novel_info.get('intro', '无介')}\n"
+                f"{'='*50}\n"
                 f"总章节数：{self.total_chapter_count}"
             )
             self.log(info_text)
@@ -523,10 +527,7 @@ class MainWindow:
         """开始下载"""
         if self.is_downloading:
             if messagebox.askyesno("提示", "正在下载中，是否停止当前下载？"):
-                self.is_downloading = False
-                self.downloader.is_downloading = False
-                self.log("正在停止下载...")
-                return
+                self.stop_download()
             return
 
         book_id = self.book_id.get().strip()
@@ -569,6 +570,12 @@ class MainWindow:
         # 保存当前书号
         self.current_book_id = book_id
 
+        # 启动下载前更新按钮状态
+        self.download_btn["state"] = 'disabled'
+        self.stop_btn["state"] = 'normal'
+        self.resume_btn["state"] = 'disabled'
+        self.retry_btn["state"] = 'disabled'
+
         # 启动下载
         self.is_downloading = True
         self.downloader.is_downloading = True
@@ -578,6 +585,37 @@ class MainWindow:
             daemon=True
         )
         self.download_thread.start()
+
+    def stop_download(self):
+        """停止下载"""
+        if self.is_downloading:
+            self.is_downloading = False
+            self.downloader.is_downloading = False
+            self.log("正在停止下载...")
+            self.download_btn["state"] = 'disabled'
+            self.stop_btn["state"] = 'disabled'
+            self.resume_btn["state"] = 'normal'
+
+    def resume_download(self):
+        """继续下载"""
+        if not self.is_downloading and self.current_book_id:
+            self.is_downloading = True
+            self.downloader.is_downloading = True
+            self.download_btn["state"] = 'disabled'
+            self.stop_btn["state"] = 'normal'
+            self.resume_btn["state"] = 'disabled'
+            
+            # 获取当前进度
+            current_progress = int(self.progress["value"] * self.total_chapter_count / 100)
+            
+            # 启动下载线程继续下载
+            thread_num = int(self.thread_num.get())
+            self.download_thread = Thread(
+                target=self.downloader.resume_download,
+                args=(self.current_book_id, current_progress, thread_num, self.output_format.get()),
+                daemon=True
+            )
+            self.download_thread.start()
 
     def retry_failed(self):
         """重试失败的章节"""
@@ -652,7 +690,7 @@ class MainWindow:
         return messagebox.askyesno(
             "下载失败",
             "有章节下载失败，是否使用单线程重试下载失败的章节？\n\n" +
-            "单线程下载可能会更稳定，但速度较慢。",
+            "单线程下载可能会稳定，但速度较慢。",
             icon='question'
         )
 

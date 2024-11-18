@@ -13,6 +13,7 @@ from urllib.parse import urlencode
 from urllib.parse import quote
 from threading import Thread
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import tkinter as tk
 
 class Crawler:
     def __init__(self, gui=None):
@@ -42,7 +43,6 @@ class Crawler:
         """获取小说详细信息"""
         url = f'{self.base_url}/book/{book_id}/'
         try:
-            self.log(f"\n获取小说详情: {url}")
             # 增加超时时间，添加重试逻辑
             for retry in range(3):
                 try:
@@ -59,7 +59,7 @@ class Crawler:
                     self.log(f"获取超时，第{retry+1}次重试...")
                     time.sleep(2)  # 重试前等待
                     continue
-                
+            
             soup = BeautifulSoup(response.text, 'lxml')
 
             info = {}
@@ -388,7 +388,6 @@ class Crawler:
         try:
             # 如果是纯数字，优先尝试书号搜索
             if keyword.isdigit():
-                self.log(f"\n开始使用书号搜索: {keyword}")
                 result = self.search_by_id(keyword)
                 if result:
                     self.log(
@@ -408,7 +407,6 @@ class Crawler:
                 self.log("\n书号搜索失败，尝试书名搜索...")
 
             # 书号搜索失败或不是书号，尝试书名搜索
-            self.log(f"\n开始使用书名搜索: {keyword}")
             results = self.search_by_name(keyword, page)
             
             if results['total'] > 0:
@@ -434,13 +432,13 @@ class Crawler:
                 self.log("未找到搜索结果容器 div.type_show")
                 return []
             
-            # 检查��否是加载中状态
+            # 检查否是加载中状态
             loading_div = type_show.find('div', class_='hots')
             if loading_div and '加载中' in loading_div.text:
                 self.log("搜索结果正在加载中")
                 return []
             
-            # 查找所有小说盒子
+            # 查找是否有小说盒子
             book_list = type_show.find_all('div', class_='bookbox')
             if not book_list:
                 self.log("未找到任何小说信息")
@@ -569,7 +567,8 @@ class Crawler:
                         'cover': book['url_img'],
                         'book_id': book_id,
                         'source': self.base_url,
-                        'status': cached_status['status']
+                        'status': cached_status['status'],
+                        'latest_chapter': cached_status.get('latest_chapter', '')  # 添加最新章节
                     }
         
         # 缓存未命中,获取新状态
@@ -580,6 +579,8 @@ class Crawler:
             book_soup = BeautifulSoup(book_response.text, 'lxml')
             
             status = '连载中'
+            latest_chapter = ''  # 初始化最新章节变量
+            
             small_info = book_soup.find('div', class_='small')
             if small_info:
                 spans = small_info.find_all('span')
@@ -589,12 +590,20 @@ class Crawler:
                         status_text = text.replace('状态：', '').strip()
                         if '完' in status_text or '结' in status_text:
                             status = '已完本'
-                        break
+                    elif '最新：' in text:  # 获取最新章节
+                        latest_chapter = text.replace('最新：', '').strip()
+            
+            # 如果在small_info中没找到最新章节，尝试从其他位置获取
+            if not latest_chapter:
+                newest = book_soup.find('div', class_='newest')
+                if newest and newest.find('a'):
+                    latest_chapter = newest.find('a').text.strip()
             
             # 更新缓存
             with self.cache_lock:
                 self.status_cache[book_id] = {
                     'status': status,
+                    'latest_chapter': latest_chapter,  # 缓存最新章节
                     'time': time.time()
                 }
             
@@ -606,7 +615,8 @@ class Crawler:
                 'cover': book['url_img'],
                 'book_id': book_id,
                 'source': self.base_url,
-                'status': status
+                'status': status,
+                'latest_chapter': latest_chapter  # 返回最新章节
             }
             
         except Exception as e:

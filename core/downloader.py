@@ -7,6 +7,7 @@ from core.crawler import Crawler
 from outputs.epub_output import EpubOutput
 from outputs.txt_output import TxtOutput
 import time
+import tkinter as tk
 
 class Downloader:
     def __init__(self, crawler: Crawler):
@@ -133,14 +134,12 @@ class Downloader:
             self.download_count = 0
 
             # 获取小说信息
-            self.crawler.log("正在获取小说信息...")
             novel_info = self.crawler.get_novel_info(book_id)
             if not novel_info:
                 self.crawler.log("获取小说信息失败！")
                 return False
 
             # 获取章节列表
-            self.crawler.log("正在获取章节列表...")
             all_chapters = self.crawler.get_chapter_list(book_id)
             if not all_chapters:
                 self.crawler.log("获取章节列表失败！")
@@ -190,7 +189,7 @@ class Downloader:
                     # 单线程重试失败章节
                     failed_chapters = self.retry_failed_chapters(book_id, failed_chapters, save_dir)
 
-            # 只有在没有失败章节或用户选择不重试的情况下才进行格式转换
+            # 只��在没有失败章节或用户选择不重试的情况下才进行格式转换
             if not failed_chapters and self.is_downloading:
                 # 转换格式
                 if output_format != "txt":
@@ -243,4 +242,23 @@ class Downloader:
                                    key=lambda x: int(os.path.basename(x['save_path']).split('-')[0]))
             for chapter in sorted_chapters:
                 f.write(f"{chapter['title']}\t{chapter['url']}\t{chapter['save_path']}\n")
+
+    def resume_download(self, book_id: str, current_progress: int, thread_num: int, output_format: str):
+        """继续下载
+        
+        Args:
+            book_id: 书号
+            current_progress: 当前进度
+            thread_num: 线程数
+            output_format: 输出格式
+        """
+        # 获取章节列表
+        chapters = self.crawler.get_chapter_list(book_id)
+        if not chapters:
+            return
+        
+        # 从当前进度继续下载
+        remaining_chapters = chapters[current_progress:]
+        self.start_download(book_id, current_progress + 1, len(chapters), 
+                           thread_num, output_format, chapters=remaining_chapters)
   

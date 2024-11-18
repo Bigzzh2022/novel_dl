@@ -27,7 +27,7 @@ class BookInfoFrame(ttk.LabelFrame):
         self.query_btn.grid(row=0, column=3, padx=(5,0))
 
 class ChapterRangeFrame(ttk.LabelFrame):
-    """章节范围选择框架"""
+    """章节范围择框架"""
     def __init__(self, parent, **kwargs):
         super().__init__(parent, text="章节范围", padding="10", **kwargs)
         self.columnconfigure(1, weight=1)
@@ -110,7 +110,7 @@ class ProgressFrame(ttk.LabelFrame):
 class LogFrame(ttk.LabelFrame):
     """日志显示框架"""
     def __init__(self, parent, **kwargs):
-        super().__init__(parent, text="下载日志", padding="10", **kwargs)
+        super().__init__(parent, text="日志", padding="10", **kwargs)
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
         self._create_widgets()
