@@ -1,0 +1,17 @@
+setup.py
+core/__init__.py
+core/crawler.py
+core/downloader.py
+gui/__init__.py
+gui/components.py
+gui/main_window.py
+novel_downloader.egg-info/PKG-INFO
+novel_downloader.egg-info/SOURCES.txt
+novel_downloader.egg-info/dependency_links.txt
+novel_downloader.egg-info/top_level.txt
+outputs/__init__.py
+outputs/base.py
+outputs/epub_output.py
+outputs/txt_output.py
+utils/__init__.py
+utils/helpers.py
