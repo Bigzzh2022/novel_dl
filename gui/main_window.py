@@ -223,26 +223,28 @@ class MainWindow:
         """显示搜索结果"""
         dialog = tk.Toplevel(self.window)
         dialog.title("搜索结果")
-        dialog.geometry("700x500")  # 减小窗口尺寸
+        dialog.geometry("800x500")  # 加宽窗口以容纳更多信息
         dialog.transient(self.window)
         dialog.grab_set()
 
         # 创建主框架
-        main_frame = ttk.Frame(dialog, padding="5")  # 减小内边距
+        main_frame = ttk.Frame(dialog, padding="5")
         main_frame.pack(fill=tk.BOTH, expand=True)
 
         # 创建表格
-        columns = ('title', 'author', 'book_id')  # 只保留书名、作者和书号
+        columns = ('title', 'author', 'status', 'book_id')  # 添加状态列
         tree = ttk.Treeview(main_frame, columns=columns, show='headings', height=15)
         
         # 设置列标题
         tree.heading('title', text='书名')
         tree.heading('author', text='作者')
+        tree.heading('status', text='状态')  # 新增状态列标题
         tree.heading('book_id', text='书号')
         
         # 设置列宽
-        tree.column('title', width=350, anchor='w')  # 加宽书名列
-        tree.column('author', width=200, anchor='w')
+        tree.column('title', width=300, anchor='w')
+        tree.column('author', width=150, anchor='w')
+        tree.column('status', width=100, anchor='center')  # 新增状态列宽度
         tree.column('book_id', width=100, anchor='center')
 
         # 添加滚动条
@@ -253,9 +255,19 @@ class MainWindow:
         def update_tree(results_data):
             tree.delete(*tree.get_children())
             for result in results_data['results']:
+                # 获取小说状态
+                status = result.get('status', '未知')
+                if not status:
+                    status = '连载中'  # 默认状态
+                elif '完' in status or '结' in status:
+                    status = '已完本'
+                else:
+                    status = '连载中'
+                    
                 tree.insert('', tk.END, values=(
                     result['title'],
                     result['author'],
+                    status,  # 添加状态信息
                     result['book_id']
                 ))
 
@@ -267,14 +279,14 @@ class MainWindow:
             if selection:
                 item = tree.item(selection[0])
                 self.book_id.delete(0, tk.END)
-                self.book_id.insert(0, item['values'][2])  # book_id
+                self.book_id.insert(0, item['values'][3])  # book_id
                 dialog.destroy()
                 self.query_book_info()
 
         tree.bind('<Double-1>', on_select)
 
         # 分页控件
-        page_frame = ttk.Frame(dialog, padding="3")  # 减小内边距
+        page_frame = ttk.Frame(dialog, padding="3")
         current_page = results.get('page', 1)
         total_pages = results.get('total_pages', 1)
         total_count = results.get('total', 0)
@@ -297,7 +309,7 @@ class MainWindow:
                 current_page = new_page
                 # 显示加载提示
                 for item in tree.get_children():
-                    tree.item(item, values=('加载中...', '', ''))
+                    tree.item(item, values=('加载中...', '', '', ''))  # 更新空值数量
                 dialog.update()
                 
                 # 加载新页面数据

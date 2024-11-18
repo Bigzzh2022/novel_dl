@@ -12,6 +12,7 @@ import os
 from urllib.parse import urlencode
 from urllib.parse import quote
 from threading import Thread
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 class Crawler:
     def __init__(self, gui=None):
@@ -19,6 +20,8 @@ class Crawler:
         self.gui = gui
         self.log_lock = Lock()
         self.ua_index = 0
+        self.status_cache = {}  # 添加状态缓存
+        self.cache_lock = Lock()  # 缓存锁
 
     def get_headers(self) -> Dict[str, str]:
         """获取随机UA"""
@@ -242,88 +245,94 @@ class Crawler:
         try:
             self.log(f"开始搜索小说: {keyword} (第{page}页)")
             
-            # 1. 先访问搜索页面获取cookie等信息
-            search_page_url = f"{self.base_url}/s?q={quote(keyword)}"
-            self.log(f"1. 访问搜索页面: {search_page_url}")
+            # 1. 先访问搜索页面获取必要的cookie等信息
+            search_url = f"{self.base_url}/s?q={quote(keyword)}"
+            self.log(f"1. 访问搜索页面: {search_url}")
             
             session = requests.Session()
-            session.headers.update(self.get_headers())
+            session.headers.update({
+                'User-Agent': random.choice(USER_AGENTS),
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                'Connection': 'keep-alive',
+                'Cache-Control': 'no-cache'
+            })
             
-            page_response = session.get(search_page_url, timeout=30)
-            page_response.encoding = 'utf-8'
+            # 访问搜索页面
+            response = session.get(search_url, timeout=30)
+            response.encoding = 'utf-8'
             
-            # 2. 发送AJAX请求获取搜索结果
+            # 2. 访问统计接口(网站要求)
+            hm_url = f"{self.base_url}/user/hm.html"
+            self.log(f"2. 访问统计接口: {hm_url}")
+            session.get(hm_url, params={'q': keyword}, timeout=10)
+            
+            # 3. 发送AJAX请求获取搜索结果
             ajax_url = f"{self.base_url}/user/search.html"
-            ajax_headers = {
+            session.headers.update({
                 'X-Requested-With': 'XMLHttpRequest',
-                'Referer': search_page_url,
-                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
                 'Accept': 'application/json, text/javascript, */*; q=0.01',
-                'Origin': self.base_url
-            }
-            session.headers.update(ajax_headers)
+                'Referer': search_url
+            })
             
-            params = {'q': keyword}
-            self.log(f"2. 发送AJAX请求: {ajax_url}")
-            self.log(f"请求参数: {params}")
+            self.log(f"3. 发送AJAX请求: {ajax_url}")
+            self.log(f"请求参数: {{'q': {keyword}}}")
             
             ajax_response = session.get(
                 ajax_url,
-                params=params,
+                params={'q': keyword},
                 timeout=30
             )
             
             try:
-                # 尝试解析JSON响应
                 results = ajax_response.json()
-                if isinstance(results, list):
-                    # 计算分页信息
-                    total = len(results)
-                    total_pages = (total + page_size - 1) // page_size
-                    start_idx = (page - 1) * page_size
-                    end_idx = min(start_idx + page_size, total)
-                    
-                    # 获取当前页的数据
-                    page_results = results[start_idx:end_idx]
-                    
-                    novels = []
-                    for book in page_results:
-                        try:
-                            # 构造基本信息，不获取详情
-                            novel = {
-                                'title': book['articlename'],  # 书名
-                                'author': book['author'],      # 作者
-                                'intro': book['intro'],        # 简介
-                                'url': self.base_url + book['url_list'],  # 完整URL
-                                'cover': book['url_img'],      # 封面图片
-                                'book_id': book['url_list'].split('/')[-2],  # 书籍ID
-                                'source': self.base_url,       # 来源网站
-                                'status': '连载中',            # 默认状态
-                                'latest_chapter': '',          # 最新章节
-                                'category': '',                # 分类
-                            }
-                            
-                            novels.append(novel)
-                            self.log(f"找到小说: {novel['title']} - {novel['author']}")
-                        except KeyError as e:
-                            self.log(f"解析书籍信息时出错: {str(e)}")
-                            continue
-                    
-                    self.log(f"第{page}页: 显示{len(novels)}/{total}本相关小说")
-                    
-                    # 返回分页信息和结果
-                    return {
-                        'total': total,
-                        'page': page,
-                        'page_size': page_size,
-                        'total_pages': total_pages,
-                        'results': novels
-                    }
-                else:
+                if not isinstance(results, list):
                     self.log(f"AJAX响应不是列表格式: {results}")
                     return self._empty_result(page, page_size)
                     
-            except Exception as e:
+                novels = []
+                # 创建线程池
+                with ThreadPoolExecutor(max_workers=5) as executor:
+                    future_to_book = {}
+                    for book in results:
+                        future = executor.submit(
+                            self._get_book_status,
+                            session,
+                            book
+                        )
+                        future_to_book[future] = book
+                    
+                    # 获取结果
+                    for future in as_completed(future_to_book):
+                        book = future_to_book[future]
+                        try:
+                            novel = future.result()
+                            if novel:
+                                novels.append(novel)
+                                self.log(f"找到小说: {novel['title']} - {novel['author']}")
+                        except Exception as e:
+                            self.log(f"解析书籍信息出错: {str(e)}")
+                            continue
+
+                # 计算分页信息
+                total = len(novels)
+                total_pages = (total + page_size - 1) // page_size
+                start_idx = (page - 1) * page_size
+                end_idx = min(start_idx + page_size, total)
+                
+                page_novels = novels[start_idx:end_idx]
+                
+                self.log(f"第{page}页: 显示{len(page_novels)}/{total}本相关小说")
+                
+                return {
+                    'total': total,
+                    'page': page,
+                    'page_size': page_size,
+                    'total_pages': total_pages,
+                    'results': page_novels
+                }
+                
+            except ValueError as e:
                 self.log(f"JSON解析失败: {str(e)}")
                 return self._empty_result(page, page_size)
 
@@ -342,20 +351,37 @@ class Crawler:
         }
 
     def get_novel_details(self, book_id: str) -> Dict:
-        """异步获取小说详细信息"""
+        """获取小说详细信息"""
         try:
-            info = self.get_novel_info(book_id)
-            if info:
-                return {
-                    'status': info.get('status', '连载中'),
-                    'latest_chapter': info.get('latest_chapter', ''),
-                    'category': info.get('category', ''),
-                    'word_count': info.get('word_count', ''),
-                    'update_time': info.get('update_time', '')
-                }
+            url = f'{self.base_url}/book/{book_id}/'
+            response = requests.get(url, headers=self.get_headers(), timeout=30)
+            response.encoding = 'utf-8'
+            soup = BeautifulSoup(response.text, 'lxml')
+
+            info = {}
+            
+            # 获取状态等信息
+            small_info = soup.find('div', class_='small')
+            if small_info:
+                spans = small_info.find_all('span')
+                for span in spans:
+                    text = span.text.strip()
+                    if '状态：' in text:
+                        status_text = text.replace('状态：', '').strip()
+                        if '完' in status_text or '结' in status_text:
+                            info['status'] = '已完本'
+                        else:
+                            info['status'] = '连载中'
+                    elif '更新：' in text:
+                        info['update_time'] = text.replace('更新：', '')
+                    elif '最新：' in text:
+                        info['latest_chapter'] = text.replace('最新：', '')
+
+            return info
+
         except Exception as e:
             self.log(f"获取小说详情失败: {str(e)}")
-        return {}
+            return {}
 
     def search_novel(self, keyword: str, page: int = 1) -> Dict:
         """统一的搜索接口"""
@@ -408,7 +434,7 @@ class Crawler:
                 self.log("未找到搜索结果容器 div.type_show")
                 return []
             
-            # 检查是否是加载中状态
+            # 检查��否是加载中状态
             loading_div = type_show.find('div', class_='hots')
             if loading_div and '加载中' in loading_div.text:
                 self.log("搜索结果正在加载中")
@@ -523,6 +549,68 @@ class Crawler:
             
         except Exception as e:
             self.logger.error(f'搜索过程发生错误: {str(e)}')
+            return None
+
+    def _get_book_status(self, session: requests.Session, book: Dict) -> Optional[Dict]:
+        """获取单本书的状态信息(带缓存)"""
+        book_id = book['url_list'].split('/')[-2]
+        
+        # 检查缓存
+        with self.cache_lock:
+            if book_id in self.status_cache:
+                cached_status = self.status_cache[book_id]
+                # 如果缓存时间不超过1小时,直接返回缓存的状态
+                if time.time() - cached_status['time'] < 3600:
+                    return {
+                        'title': book['articlename'],
+                        'author': book['author'],
+                        'intro': book['intro'],
+                        'url': self.base_url + book['url_list'],
+                        'cover': book['url_img'],
+                        'book_id': book_id,
+                        'source': self.base_url,
+                        'status': cached_status['status']
+                    }
+        
+        # 缓存未命中,获取新状态
+        try:
+            book_url = self.base_url + book['url_list']
+            book_response = session.get(book_url, timeout=10)
+            book_response.encoding = 'utf-8'
+            book_soup = BeautifulSoup(book_response.text, 'lxml')
+            
+            status = '连载中'
+            small_info = book_soup.find('div', class_='small')
+            if small_info:
+                spans = small_info.find_all('span')
+                for span in spans:
+                    text = span.text.strip()
+                    if '状态：' in text:
+                        status_text = text.replace('状态：', '').strip()
+                        if '完' in status_text or '结' in status_text:
+                            status = '已完本'
+                        break
+            
+            # 更新缓存
+            with self.cache_lock:
+                self.status_cache[book_id] = {
+                    'status': status,
+                    'time': time.time()
+                }
+            
+            return {
+                'title': book['articlename'],
+                'author': book['author'],
+                'intro': book['intro'],
+                'url': book_url,
+                'cover': book['url_img'],
+                'book_id': book_id,
+                'source': self.base_url,
+                'status': status
+            }
+            
+        except Exception as e:
+            self.log(f"获取书籍状态失败: {str(e)}")
             return None
 
     # ... (其他方法保持不变)
